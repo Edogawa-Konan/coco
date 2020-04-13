@@ -1470,7 +1470,7 @@ int PatternPointer::ngrams(vector<PatternPointer> &container,
     int found = 0;
     size_t byteoffset = 0;
     for (int i = 0; i < (_n - n) + 1; i++) {
-        container.emplace_back(*this, 0, n, &byteoffset, true, true);
+        container.emplace_back(*this, 0, n, &byteoffset, true, false);
         found++;
     }
     return found;
@@ -1664,7 +1664,8 @@ std::vector<PatternPointer> PatternPointer::bruteforce(const std::vector<Ner> &p
     unsigned int max_v = pow(2, ner_n);
     vector<PatternPointer> all_commbination;
     while (mask < max_v) {
-        PatternPointer tmp(no_ner);
+//        PatternPointer tmp = no_ner.copy();
+        PatternPointer tmp(no_ner); // this no need for deep copy
         if(mask != 0)
         {
             for (unsigned int i = 0; i < n_bits; i++) {
@@ -2593,43 +2594,15 @@ void PatternPointer::compute_bow(unsigned int n) {
 //    this->bow.ners.assign(ners_set.begin(), ners_set.end());
 }
 
-//int PatternPointer::ngrams_with_ner(std::vector<std::pair<PatternPointer, int>> &container, int n,
-//                                    const std::vector<Ner> *ners_, ClassEncoder *classEncoder,
-//                                    ClassDecoder *classDecoder) const {
-//    const int _n = this->n();
-//    if (n > _n) return 0;
-//    int found = 0;
-//    size_t byteoffset = 0;
-//    size_t pattern_start = 0;   // Current pattern start, from 1
-//    for (int i = 0; i < (_n - n) + 1; i++) {
-//        PatternPointer no_ners(*this, 0, n, &byteoffset, true);
-//        pattern_start++;
-//        auto it = std::lower_bound(ners_->begin(), ners_->end(), pattern_start,
-//                                   [](const Ner &obj, const unsigned int &start) { return obj.start < start; });
-//        std::vector<Ner> pattern_has_ners;
-//        for (; it != ners_->cend() && it->start >= pattern_start &&
-//               (it->start + it->len) <= (pattern_start + n); it++) {
-//            pattern_has_ners.push_back(*it);
-//            pattern_has_ners.back().start -= pattern_start;
-//        }
-//        if (!pattern_has_ners.empty()) {
-//            std::vector<PatternPointer> res = PatternPointer::bruteforce(pattern_has_ners, no_ners);
-//            found += res.size();
-//            for (const PatternPointer &pp: res)
-//            {
-//                string patternstring = pp.tostring(*classDecoder);
-//                unsigned char buffer[1000];
-//                int buffersize = classEncoder->encodestring(patternstring, buffer, false, false);
-//                PatternPointer new_pattern = PatternPointer(buffer, buffersize);
-//                container.emplace_back(new_pattern, i);
-//            }
-//        } else {
-//            container.emplace_back(no_ners, i);
-//            found++;
-//        }
-//    }
-//    return found;
-//}
+PatternPointer PatternPointer::copy() const {
+    auto new_patternpointer = PatternPointer();
+    new_patternpointer.data = new unsigned char[this->bytesize()];
+    memcpy(new_patternpointer.data, this->data, this->bytesize());
+    new_patternpointer.mask = this->mask;
+    new_patternpointer.bytes  = this->bytes;
+    return new_patternpointer;
+}
+
 
 std::string BasePattern::bow2string(ClassDecoder &classDecoder) const {
 

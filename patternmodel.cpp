@@ -10,7 +10,7 @@ int get_ngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPoint
     int found = 0;
     size_t byteoffset = 0;
     size_t pattern_start = 0;   // Current pattern start, from 1
-    for (int i = 0; i < (_n - n) + 1; i++) {
+    for (int i = 0; i < (_n - n) + 1; i++) {//i indicate token position (from 0)
         PatternPointer no_ners(line, 0, n, &byteoffset, true);
         pattern_start++;
         auto it = std::lower_bound(ners_->begin(), ners_->end(), pattern_start,
@@ -22,9 +22,15 @@ int get_ngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPoint
             pattern_has_ners.back().start -= pattern_start;
         }
         if (!pattern_has_ners.empty()) {
-            std::vector<PatternPointer> res = PatternPointer::bruteforce(pattern_has_ners, no_ners);
-            found += res.size();
-            for (const PatternPointer &pp: res) {
+            std::vector<PatternPointer> all_permutation = PatternPointer::bruteforce(pattern_has_ners, no_ners);
+            found += all_permutation.size();
+            for (const PatternPointer &pp: all_permutation) {
+                if(pp.ners.empty())
+                {
+                    container.emplace_back(pp, i);
+//                    std::cerr<<pp.tostringraw(*classDecoder)<<"\n";
+                    continue;
+                }
                 std::string patternstring = pp.tostring(*classDecoder);
                 for (auto & key: pp.ners)
                 {//
@@ -33,13 +39,43 @@ int get_ngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPoint
                 }
                 PatternPointer new_pattern = classEncoder->buildpatternpointer(patternstring);
                 assert(patternstring == new_pattern.tostring(*classDecoder));
-                container.emplace_back(new_pattern, i);
+//                /*debug */
+//                if(patternstring == "*message_type* do")
+//                {
+//                    std::cerr<<"n is "<<n<<" "<<patternstring<<" "<<i<<" -------------"<<line.tostringraw(*classDecoder)<<"\n";
+//                }
+                /*************/
+                /*must use copy! */
+                container.emplace_back(new_pattern.copy(), i);
+//                std::cerr<<new_pattern.tostringraw(*classDecoder)<<"\n";
             }
         } else {
             container.emplace_back(no_ners, i);
             found++;
         }
     }
+    return found;
+}
+
+
+int
+get_subngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPointer, int>> &container, int minn, int maxn,
+                       const std::vector<Ner> *ners, ClassEncoder *classEncoder, ClassDecoder *classDecoder)
+{
+    const int _n = line.n();
+    if (maxn > _n) maxn = _n;
+    if (minn > _n) return 0;
+    int found = 0;
+    for (int i = minn; i <= maxn; i++) {
+        found += get_ngrams_with_ner(line, container, i, ners, classEncoder, classDecoder);
+    }
+
+//    for (auto iter = container.begin();
+//         iter != container.end(); iter++)
+//    {
+//        std::cerr<<":"<<iter->second<<" "<<iter->first.tostring(*classDecoder)<<"\n";
+//
+//    }
     return found;
 }
 

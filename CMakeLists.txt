@@ -23,6 +23,6 @@ set(SRC_LIST classencoder.cpp common.cpp pattern.cpp classdecoder.cpp algorithms
 
 add_executable(pipeline ${SRC_LIST} pipeline.cpp)
 
-#add_executable(main ${SRC_LIST} main.cpp)
-#
-#add_executable(test_ner ${SRC_LIST} test_ner.cpp)
+add_executable(main ${SRC_LIST} main.cpp)
+
+add_executable(test_ner ${SRC_LIST} test_ner.cpp)

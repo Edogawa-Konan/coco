@@ -838,6 +838,12 @@ public:
 
 //     operator Pattern() { return Pattern(*this); } //cast overload
     Pattern pattern() const { return Pattern(*this); } //cast overload
+
+    /**
+     * Deep copy for this PatternPointer object, used in NER
+     * @return
+     */
+    PatternPointer copy() const;
 };
 
 

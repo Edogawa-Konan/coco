@@ -552,6 +552,10 @@ int get_ngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPoint
                         const std::vector<Ner> *ners_, ClassEncoder *classEncoder,
                         ClassDecoder *classDecoder);
 
+int
+get_subngrams_with_ner(PatternPointer &line, std::vector<std::pair<PatternPointer, int>> &container, int minn, int maxn,
+                       const std::vector<Ner> *ners, ClassEncoder *classEncoder, ClassDecoder *classDecoder); //return all subsumed ngrams (variable n)
+
 /**
  * \brief A model mapping patterns to values, high-level interface.
  * @tparam ValueType The type of Value this model stores
@@ -604,50 +608,7 @@ protected:
         //sort indices
     }
 
-    virtual void compute_matchhelpers(bool quiet = false) {
-        const bool doskipgrams = (matchskipgramhelper.empty() && hasskipgrams);
-        const bool doflexgrams = (matchflexgramhelper.empty() && hasflexgrams);
-        if (!doskipgrams && !doflexgrams) return;
-
-        unsigned int skipgramcount = 0;
-        unsigned int flexgramcount = 0;
-
-        for (iterator iter = this->begin(); iter != this->end(); iter++) {
-            const PatternPointer pattern = iter->first;
-            const PatternCategory category = pattern.category();
-            const PatternPointer firstword = PatternPointer(pattern, 0, 1);
-            if (!firstword.unknown() && (!firstword.isgap(0))) {
-                if ((category == SKIPGRAM) && (doskipgrams)) {
-                    bool found = false;
-                    for (std::vector<std::pair<uint32_t, unsigned char>>::iterator iter2 = matchskipgramhelper[firstword].begin();
-                         iter2 != matchskipgramhelper[firstword].end(); iter2++) {
-                        if ((iter2->first == pattern.getmask()) && (iter2->second == pattern.n())) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        matchskipgramhelper[firstword].push_back(
-                                std::pair<uint32_t, unsigned char>(pattern.getmask(), pattern.n()));
-                        skipgramcount++;
-                    }
-                } else if ((category == FLEXGRAM) && (doflexgrams)) {
-                    matchflexgramhelper[firstword].insert(pattern);
-                    flexgramcount++;
-                }
-            }
-        }
-        for (t_matchskipgramhelper::iterator iter = matchskipgramhelper.begin();
-             iter != matchskipgramhelper.end(); iter++) {
-            iter->second.shrink_to_fit();
-        }
-        if (!quiet && !matchskipgramhelper.empty())
-            std::cerr << "(helper structure has " << matchskipgramhelper.size() << " unigrams mapping to "
-                      << skipgramcount << " skipgrams total)" << std::endl;
-        if (!quiet && !matchflexgramhelper.empty())
-            std::cerr << "(helper structure has " << matchflexgramhelper.size() << " unigrams mapping to "
-                      << flexgramcount << " flexgrams total)" << std::endl;
-    }
+    virtual void compute_matchhelpers(bool quiet = false);
 
 public:
     IndexedCorpus *reverseindex; ///< Pointer to the reverse index and corpus data for this model (or NULL)
@@ -2888,8 +2849,6 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
     uint32_t sentence;
     const unsigned char version = (in != nullptr) ? getdataversion(in) : 2;
 
-    bool filterhasngrams = false;
-    bool filterhasskipgrams = false; //(or flexgrams)
     bool iter_unigramsonly = false; //only needed for counting unigrams when we need them but they would be discarded
     bool skipunigrams = false; //will be set to true later only when MINTOKENS=1,MINLENGTH=1 to prevent double counting of unigrams
 
@@ -2902,14 +2861,6 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
         if (iter_unigramsonly) std::cerr << ", secondary word occurrence threshold: " << options.MINTOKENS_UNIGRAMS;
         if (version < 2) std::cerr << ", class encoding version: " << (int) version;
         std::cerr << std::endl;
-        if (filterhasngrams) {
-            std::cerr
-                    << "Filter with ngrams provided, only patterns that either match a filtered pattern or contain a smaller filtered pattern will be included..."
-                    << std::endl;
-        }
-        if (filterhasskipgrams) {
-            std::cerr << "Filter with skipgrams provided, only matching instances will be included..." << std::endl;
-        }
     }
 
     if (options.DOSKIPGRAMS && options.DOSKIPGRAMS_EXHAUSTIVE) {
@@ -2961,7 +2912,6 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
 
         sentence = firstsentence - 1; //reset
         bool singlepass = false;
-        bool ignorefilter = false;
         const unsigned int sentences = (reverseindex != NULL) ? reverseindex->sentences() : 0;
         if ((options.DEBUG) && (reverseindex != NULL))
             std::cerr << "Reverse index sentence count: " << sentences << std::endl;
@@ -2971,6 +2921,7 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
         while (((reverseindex != NULL) && (sentence < sentences)) ||
                ((reverseindex == NULL) && (in != nullptr) && (!in->eof()))) {
             sentence++;
+
             //read line
             delete linepattern;
             if (reverseindex == NULL) {
@@ -2999,23 +2950,24 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
             } else {
                 // ----
                 if (iter_unigramsonly) {
-                    line.ngrams(ngrams, n, nerCorpus[sentence - 1]);
+                    get_ngrams_with_ner(line, ngrams, n, nerCorpus[sentence - 1], classEncoder,
+                                        classDecoder);
                 } else if (options.MINTOKENS > 1) {
                     get_ngrams_with_ner(line, ngrams, n, nerCorpus[sentence - 1], classEncoder,
                                         classDecoder);
                 } else {
                     singlepass = true;
                     int minlength = options.MINLENGTH;
-                    line.subngrams(ngrams, minlength,
-                                   options.MAXLENGTH, nerCorpus[sentence -1]); //extract ALL ngrams if MINTOKENS == 1 or a constraint model is set, no need to look back anyway, only one iteration over corpus
+                    get_subngrams_with_ner(line, ngrams, minlength, options.MAXLENGTH, nerCorpus[sentence -1], classEncoder, classDecoder);
                 }
             }
             if (options.DEBUG) std::cerr << "\t" << ngrams.size() << " ngrams in line" << std::endl;
 
             // *** ITERATION OVER ALL NGRAMS OF CURRENT ORDER (n) IN THE LINE/SENTENCE ***
-            for (std::vector<std::pair<PatternPointer, int>>::iterator iter = ngrams.begin();
+            for (auto iter = ngrams.begin();
                  iter != ngrams.end(); iter++) {
                 try {
+
                     if ((singlepass) && (options.MINLENGTH == 1) && (skipunigrams) && (iter->first.n() == 1)) {
                         //prevent double counting of unigrams after a iter_unigramsonly run with mintokens==1
                         continue;
@@ -3023,7 +2975,6 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
                     if (!skipgramsonly) {
 
                         found = true; //are the submatches in order? (default to true, attempt to falsify, needed for mintokens==1)
-
                         //unigram check, special scenario, not usually processed!! (normal lookback suffices for most uses)
                         if ((!iter_unigramsonly) && (options.MINTOKENS_UNIGRAMS > options.MINTOKENS) &&
                             ((n > 1) || (singlepass))) {
@@ -3038,7 +2989,6 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
                                 }
                             }
                         }
-
                         //normal behaviour: ngram (n-1) look back
                         if ((found) && (n > 1) && (options.MINTOKENS > 1) && (!options.DOPATTERNPERLINE)) {
                             //check if sub-parts were counted
@@ -3054,14 +3004,21 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
                                 }
                             }
                         }
-
+//                        /*debug */
+//                        if(iter->first.tostringraw(*classDecoder) == "*message_type* do")
+//                        {
+//                            std::cerr<<sentence<<" "<<iter->second<<" -------------"<<line.tostringraw(*classDecoder)<<"\n";
+//                            const Pattern pattern = Pattern(iter->first);
+//                            std::cerr<<pattern.torawstring(*classDecoder)<<"\n";
+//                        }
+                        /*************/
                         ref = IndexReference(sentence,
                                              iter->second); //this is one token, we add the tokens as we find them, one by one
                         if ((found) && (!skipgramsonly)) {
                             if (options.DEBUG) {
                                 std::cerr << "\t\tAdding @" << ref.sentence << ":" << ref.token << " n="
                                           << iter->first.n() << " category=" << (int) iter->first.category()
-                                          << "   " << iter->first.tostring(*classDecoder) << "  ||  ";
+                                          << "   " << iter->first.tostringraw(*classDecoder) << "  ||  ";
                                 for (const Ner &ner : iter->first.ners)
                                     std::cerr << ner << " ";
                                 std::cerr << std::endl;
@@ -3071,7 +3028,7 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
                             if (options.DEBUG) {
                                 std::cerr << "\t\tSkiping @" << ref.sentence << ":" << ref.token << " n="
                                           << iter->first.n() << " category=" << (int) iter->first.category()
-                                          << "   " << iter->first.tostring(*classDecoder) << "  ||  ";
+                                          << "   " << iter->first.tostringraw(*classDecoder) << "  ||  ";
                                 for (const Ner &ner : iter->first.ners)
                                     std::cerr << ner << " ";
                                 std::cerr << std::endl;
@@ -3209,6 +3166,52 @@ void PatternModel<ValueType, ValueHandler, MapType, PatternType>::train_with_ner
     }
     this->posttrain(options);
     delete linepattern;
+}
+
+template<class ValueType, class ValueHandler, class MapType, class PatternType>
+void PatternModel<ValueType, ValueHandler, MapType, PatternType>::compute_matchhelpers(bool quiet) {
+    const bool doskipgrams = (matchskipgramhelper.empty() && hasskipgrams);
+    const bool doflexgrams = (matchflexgramhelper.empty() && hasflexgrams);
+    if (!doskipgrams && !doflexgrams) return;
+
+    unsigned int skipgramcount = 0;
+    unsigned int flexgramcount = 0;
+
+    for (iterator iter = this->begin(); iter != this->end(); iter++) {
+        const PatternPointer pattern = iter->first;
+        const PatternCategory category = pattern.category();
+        const PatternPointer firstword = PatternPointer(pattern, 0, 1);
+        if (!firstword.unknown() && (!firstword.isgap(0))) {
+            if ((category == SKIPGRAM) && (doskipgrams)) {
+                bool found = false;
+                for (std::vector<std::pair<uint32_t, unsigned char>>::iterator iter2 = matchskipgramhelper[firstword].begin();
+                     iter2 != matchskipgramhelper[firstword].end(); iter2++) {
+                    if ((iter2->first == pattern.getmask()) && (iter2->second == pattern.n())) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    matchskipgramhelper[firstword].push_back(
+                            std::pair<uint32_t, unsigned char>(pattern.getmask(), pattern.n()));
+                    skipgramcount++;
+                }
+            } else if ((category == FLEXGRAM) && (doflexgrams)) {
+                matchflexgramhelper[firstword].insert(pattern);
+                flexgramcount++;
+            }
+        }
+    }
+    for (t_matchskipgramhelper::iterator iter = matchskipgramhelper.begin();
+         iter != matchskipgramhelper.end(); iter++) {
+        iter->second.shrink_to_fit();
+    }
+    if (!quiet && !matchskipgramhelper.empty())
+        std::cerr << "(helper structure has " << matchskipgramhelper.size() << " unigrams mapping to "
+                  << skipgramcount << " skipgrams total)" << std::endl;
+    if (!quiet && !matchflexgramhelper.empty())
+        std::cerr << "(helper structure has " << matchflexgramhelper.size() << " unigrams mapping to "
+                  << flexgramcount << " flexgrams total)" << std::endl;
 }
 
 /**
